@@ -35,7 +35,7 @@ mongoose.connect(process.env.DATABASE_URL)
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:3000'];
+const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:3000','http://localhost:5000'];
 
 app.use(cors({
     origin: function (origin, callback) {
