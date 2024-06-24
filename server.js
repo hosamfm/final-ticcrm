@@ -35,14 +35,12 @@ mongoose.connect(process.env.DATABASE_URL)
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-const allowedOrigins = process.env.FRONTEND_URLS ? process.env.FRONTEND_URLS.split(',') : ['http://localhost:3000'];
+const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:3000'];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
         // Check if the incoming origin is allowed
-        if (allowedOrigins.indexOf(origin) !== -1) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
