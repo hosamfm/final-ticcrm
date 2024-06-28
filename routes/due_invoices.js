@@ -4,14 +4,6 @@ const { ensureAuthenticated } = require('../utils/helpers');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Long = require('mongodb').Long;
-const redis = require('redis');
-
-// إعداد اتصال Redis
-const client = redis.createClient();
-
-client.on('error', (err) => console.error('Redis client error', err));
-
-client.connect();
 
 mongoose.connect(process.env.DATABASE_URL, {
     useNewUrlParser: true,
@@ -51,6 +43,7 @@ const updateXDueInv = async (db, p_acc_id, v_customer_balance) => {
         in_due_inv_return_id: 0
     }).sort({ in_due_inv_datetime: 1 }).toArray();
 
+
     let remaining_balance = v_customer_balance;
 
     // توزيع الرصيد المدفوع على الفواتير
@@ -58,7 +51,7 @@ const updateXDueInv = async (db, p_acc_id, v_customer_balance) => {
         const invoice_net = invoice.in_due_inv_net;
         const payment_to_apply = Math.min(remaining_balance, invoice_net);
 
-        await db.collection('tbl_invoice_due').updateOne(
+        const updateResult = await db.collection('tbl_invoice_due').updateOne(
             { _id: invoice._id },
             {
                 $set: {
@@ -69,10 +62,12 @@ const updateXDueInv = async (db, p_acc_id, v_customer_balance) => {
 
         remaining_balance -= payment_to_apply;
 
+
         if (remaining_balance <= 0) {
             break;
         }
     }
+
 };
 
 const getDueInvoices = async (db, p_acc_id) => {
@@ -338,37 +333,20 @@ const longToString = (long) => {
     return long;
 };
 
+
+
 const longToInt = (long) => {
     if (long && typeof long === 'object' && long.low !== undefined && long.high !== undefined) {
         return long.toNumber();
     }
     return long;
 };
-
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 };
 
-// Middleware للتحقق من التخزين المؤقت
-async function cacheMiddleware(req, res, next) {
-    const p_acc_id = req.query.p_acc_id || 'all';
-    const cacheKey = `due_invoices_${p_acc_id}`;
-
-    try {
-        const cachedData = await client.get(cacheKey);
-        if (cachedData) {
-            return res.json(JSON.parse(cachedData));
-        }
-        req.cacheKey = cacheKey;
-        next();
-    } catch (err) {
-        console.error('Redis cache error:', err);
-        next();
-    }
-}
-
-// مسار للحصول على الفواتير المستحقة مع استخدام التخزين المؤقت
-router.get('/due-invoices', ensureAuthenticated, cacheMiddleware, async (req, res) => {
+// استخدم هذه الدالة في المسار الخاص بجلب الفواتير
+router.get('/due-invoices', ensureAuthenticated, async (req, res) => {
     try {
         const db = await getDatabase(req);
 
@@ -404,9 +382,6 @@ router.get('/due-invoices', ensureAuthenticated, cacheMiddleware, async (req, re
             };
         });
 
-        // تخزين البيانات في Redis
-        await client.set(req.cacheKey, JSON.stringify(dueInvoices), 'EX', 3600); // تخزين البيانات لمدة ساعة واحدة
-
         res.json(dueInvoices);
     } catch (err) {
         console.error('Error fetching due invoices:', err.message);
@@ -414,6 +389,8 @@ router.get('/due-invoices', ensureAuthenticated, cacheMiddleware, async (req, re
     }
 });
 
+
+  
 router.get('/customer/:p_acc_id', ensureAuthenticated, async (req, res) => {
     try {
         const db = await getDatabase(req);
@@ -444,5 +421,6 @@ router.get('/customer/:p_acc_id', ensureAuthenticated, async (req, res) => {
         res.status(500).json({ error: 'حدث خطأ أثناء استرجاع تفاصيل العميل' });
     }
 });
+
 
 module.exports = router;
