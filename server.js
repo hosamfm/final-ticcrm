@@ -39,7 +39,6 @@ const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:3000','htt
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Check if the incoming origin is allowed
         if (!origin || allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
@@ -49,6 +48,18 @@ app.use(cors({
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true
 }));
+
+const smsCorsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true
+};
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'secret',
@@ -86,7 +97,10 @@ const dueInvoicesRouter = require('./routes/due_invoices');
 const smsRouter = require('./routes/sms');
 const apiRouter = require('./routes/api');
 const invoiceDetailsRouter = require('./routes/invoiceDetails');
-const topProductsRouter = require('./routes/topProducts'); // إضافة هذا السطر
+const topProductsRouter = require('./routes/topProducts');
+
+// مسارات الرسائل
+app.use('/api/sms', cors(smsCorsOptions), smsRouter);
 
 // مسارات المستخدمين
 app.use('/api/auth', usersRouter);
@@ -94,10 +108,9 @@ app.use('/api/manage_users', manageUsersRouter);
 app.use('/api/company', companyRouter);
 app.use('/api/customers', customerRouter);
 app.use('/api/due_invoices', dueInvoicesRouter);
-app.use('/api/sms', smsRouter);
 app.use('/api', apiRouter);
 app.use('/api/invoice_details', invoiceDetailsRouter);
-app.use('/api/top-products-month', topProductsRouter); // إضافة هذا السطر
+app.use('/api/top-products-month', topProductsRouter);
 app.use('/', dashboardRouter);
 
 // مسار بيانات الفواتير
