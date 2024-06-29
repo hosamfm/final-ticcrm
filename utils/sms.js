@@ -3,10 +3,17 @@ const fetch = require('node-fetch');
 const SentMessageSchema = require('../models/SentMessage').schema;
 const SentInvoiceSchema = require('../models/SentInvoice').schema;
 
+const formatCurrency = (amount) => {
+    const number = parseFloat(amount);
+    if (isNaN(number)) {
+        throw new Error('Invalid amount: ' + amount);
+    }
+    return number.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+};
+
 async function sendSMS(db, phone, message, customerName, invoices, userId) {
     try {
         const url = `https://semysms.net/api/3/sms.php?token=f372dcf103146b3e3cbbac95514b9cf1&device=active&phone=${phone}&msg=${encodeURIComponent(message)}`;
-
 
         const response = await fetch(url);
         if (!response.ok) {
@@ -41,9 +48,9 @@ async function sendSMS(db, phone, message, customerName, invoices, userId) {
                 messageId: sentMessage._id,
                 invoiceId: String(invoice.invoice_id),
                 invoiceNumber: invoice.invoice_number,
-                invoicePayment: invoice.invoice_payment,
-                invoiceNet: invoice.invoice_net,
-                remainingAmount: invoice.remaining_amount,
+                invoicePayment: formatCurrency(invoice.invoice_payment),
+                invoiceNet: formatCurrency(invoice.invoice_net),
+                remainingAmount: formatCurrency(invoice.remaining_amount),
                 dueDaysRemain: invoice.due_days_remain
             });
             await sentInvoice.save();

@@ -34,6 +34,53 @@ async function getDatabase(req) {
 
     return mongoose.connection.useDb(databaseName);
 }
+const getCustomerTotalBalanceByCurrency = async (db, accountId) => {
+    try {
+        const balances = await db.collection('tbl_gl').aggregate([
+            {
+                $match: {
+                    gl_ac_id: accountId
+                }
+            },
+            {
+                $group: {
+                    _id: '$gl_currency_id',
+                    totalDebit: { $sum: '$gl_debit' },
+                    totalCredit: { $sum: '$gl_credit' }
+                }
+            },
+            {
+                $project: {
+                    currencyId: '$_id',
+                    balance: { $subtract: ['$totalCredit', '$totalDebit'] }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'tbl_currency',
+                    localField: 'currencyId',
+                    foreignField: 'cur_lst_id',
+                    as: 'currencyDetails'
+                }
+            },
+            {
+                $unwind: '$currencyDetails'
+            },
+            {
+                $project: {
+                    currency: '$currencyDetails.cur_lst_name',
+                    balance: 1
+                }
+            }
+        ]).toArray();
+
+        return balances;
+    } catch (error) {
+        console.error('Error in getCustomerTotalBalanceByCurrency:', error);
+        throw error;
+    }
+};
+
 
 const updateXDueInv = async (db, p_acc_id, v_customer_balance) => {
 
@@ -421,6 +468,22 @@ router.get('/customer/:p_acc_id', ensureAuthenticated, async (req, res) => {
         res.status(500).json({ error: 'حدث خطأ أثناء استرجاع تفاصيل العميل' });
     }
 });
+
+router.get('/customer/balance/:p_acc_id', ensureAuthenticated, async (req, res) => {
+    try {
+        const db = await getDatabase(req);
+        const p_acc_id = BigInt(req.params.p_acc_id);
+
+        // استدعاء الدالة الجديدة لحساب الرصيد الكلي للعميل حسب العملة
+        const balances = await getCustomerTotalBalanceByCurrency(db, p_acc_id);
+
+        res.json({ balances });
+    } catch (err) {
+        console.error('Error while fetching customer balance:', err.message);
+        res.status(500).json({ error: 'حدث خطأ أثناء استرجاع رصيد العميل' });
+    }
+});
+
 
 
 module.exports = router;
