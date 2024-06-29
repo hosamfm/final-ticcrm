@@ -88,6 +88,15 @@ app.use((req, res, next) => {
 
 require('./config/passport')(passport);
 
+// تعريف ميدل وير للتحقق من المصادقة
+function ensureAuthenticated(req, res, next) {
+    if (req.isAuthenticated()) {
+        return next();
+    } else {
+        res.redirect('/login');
+    }
+}
+
 // إعداد مسارات الواجهة الخلفية
 const usersRouter = require('./routes/auth');
 const manageUsersRouter = require('./routes/manage_users');
@@ -137,12 +146,8 @@ app.get('/', (req, res) => {
     res.redirect('/login');
 });
 
-app.get('/dashboard', (req, res) => {
-    if (req.isAuthenticated()) {
-        res.json({ user: req.user });
-    } else {
-        res.redirect('/login');
-    }
+app.get('/dashboard', ensureAuthenticated, (req, res) => {
+    res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 const createAdminUser = async () => {
