@@ -35,30 +35,17 @@ mongoose.connect(process.env.DATABASE_URL)
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-const allowedOrigins = [process.env.FRONTEND_URL || 'http://localhost:3000','http://localhost:5000'];
-
+// السماح بجميع الأصول أثناء التطوير
 app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true
 }));
 
 const smsCorsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true
+    origin: '*',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true
 };
 
 app.use(session({
@@ -107,6 +94,7 @@ const smsRouter = require('./routes/sms');
 const apiRouter = require('./routes/api');
 const invoiceDetailsRouter = require('./routes/invoiceDetails');
 const topProductsRouter = require('./routes/topProducts');
+const balanceTasksRouter = require('./routes/balanceTasks'); // إضافة مسار الأرصدة الجديد
 
 // مسارات الرسائل
 app.use('/api/sms', cors(smsCorsOptions), smsRouter);
@@ -120,6 +108,7 @@ app.use('/api/due_invoices', dueInvoicesRouter);
 app.use('/api', apiRouter);
 app.use('/api/invoice_details', invoiceDetailsRouter);
 app.use('/api/top-products-month', topProductsRouter);
+app.use('/api/balance-tasks', balanceTasksRouter); // إضافة مسار الأرصدة الجديد
 app.use('/', dashboardRouter);
 
 // مسار بيانات الفواتير

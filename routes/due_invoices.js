@@ -4,6 +4,7 @@ const { ensureAuthenticated } = require('../utils/helpers');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Long = require('mongodb').Long;
+const createAccountBalanceModel = require('../models/AccountBalance');
 
 mongoose.connect(process.env.DATABASE_URL, {
     useNewUrlParser: true,
@@ -34,53 +35,6 @@ async function getDatabase(req) {
 
     return mongoose.connection.useDb(databaseName);
 }
-const getCustomerTotalBalanceByCurrency = async (db, accountId) => {
-    try {
-        const balances = await db.collection('tbl_gl').aggregate([
-            {
-                $match: {
-                    gl_ac_id: accountId
-                }
-            },
-            {
-                $group: {
-                    _id: '$gl_currency_id',
-                    totalDebit: { $sum: '$gl_debit' },
-                    totalCredit: { $sum: '$gl_credit' }
-                }
-            },
-            {
-                $project: {
-                    currencyId: '$_id',
-                    balance: { $subtract: ['$totalCredit', '$totalDebit'] }
-                }
-            },
-            {
-                $lookup: {
-                    from: 'tbl_currency',
-                    localField: 'currencyId',
-                    foreignField: 'cur_lst_id',
-                    as: 'currencyDetails'
-                }
-            },
-            {
-                $unwind: '$currencyDetails'
-            },
-            {
-                $project: {
-                    currency: '$currencyDetails.cur_lst_name',
-                    balance: 1
-                }
-            }
-        ]).toArray();
-
-        return balances;
-    } catch (error) {
-        console.error('Error in getCustomerTotalBalanceByCurrency:', error);
-        throw error;
-    }
-};
-
 
 const updateXDueInv = async (db, p_acc_id, v_customer_balance) => {
 
@@ -373,6 +327,7 @@ const getDueInvoices = async (db, p_acc_id) => {
     return dueInvoicesConverted;
 };
 
+
 const longToString = (long) => {
     if (Long.isLong(long)) {
         return long.toString();
@@ -397,39 +352,30 @@ router.get('/due-invoices', ensureAuthenticated, async (req, res) => {
     try {
         const db = await getDatabase(req);
 
-        let dueInvoices = [];
+        // تحقق من وجود معرف الحساب
         if (!req.query.p_acc_id) {
-            // الحصول على جميع الحسابات التي تحتوي على الفواتير المستحقة بالشروط المحددة
-            const accounts = await db.collection('tbl_invoice_due').distinct('in_due_inv_acc_id', {
-                in_due_inv_const: 102,
-                $expr: {
-                    $gte: [{ $subtract: ['$in_due_inv_net', '$in_due_calc_paid'] }, 1]
-                }
-            });
-            // استخدام Promise.all لتنفيذ الاستعلامات بشكل متوازي
-            const invoicePromises = accounts.map(accountId => getDueInvoices(db, accountId.toString()));
-            dueInvoices = (await Promise.all(invoicePromises)).flat();
-        } else {
-            // إذا تم تمرير معرف الحساب
-            dueInvoices = await getDueInvoices(db, req.query.p_acc_id);
+            return res.status(400).json({ error_msg: 'معرف الحساب مطلوب' });
         }
 
+        // إذا تم تمرير معرف الحساب
+        const dueInvoices = await getDueInvoices(db, req.query.p_acc_id);
+
         // تحويل قيم Long إلى أعداد صحيحة عادية وتنسيق القيم المالية وتحديد القيم الصحيحة
-        dueInvoices = dueInvoices.map(invoice => {
+        const formattedDueInvoices = dueInvoices.map(invoice => {
             return {
                 ...invoice,
                 _id: longToInt(invoice._id),
                 in_list_id: longToInt(invoice.in_list_id),
                 cu_id: longToInt(invoice.cu_id),
                 in_list_acc_cust: longToInt(invoice.in_list_acc_cust),
-                in_list_net: formatCurrency(invoice.in_list_net),
-                in_list_payment: formatCurrency(invoice.in_list_payment),
-                in_list_remain: formatCurrency(invoice.in_list_remain),
+                in_list_net: invoice.in_list_net ? invoice.in_list_net.toString() : '0',
+                in_list_payment: invoice.in_list_payment ? invoice.in_list_payment.toString() : '0',
+                in_list_remain: invoice.in_list_remain ? invoice.in_list_remain.toString() : '0',
                 due_days_remain: Math.round(invoice.due_days_remain)
             };
         });
 
-        res.json(dueInvoices);
+        res.json(formattedDueInvoices);
     } catch (err) {
         console.error('Error fetching due invoices:', err.message);
         res.status(500).json({ error_msg: 'Error fetching due invoices' });
@@ -469,21 +415,59 @@ router.get('/customer/:p_acc_id', ensureAuthenticated, async (req, res) => {
     }
 });
 
-router.get('/customer/balance/:p_acc_id', ensureAuthenticated, async (req, res) => {
+
+router.get('/customers', ensureAuthenticated, async (req, res) => {
     try {
         const db = await getDatabase(req);
-        const p_acc_id = BigInt(req.params.p_acc_id);
+        const AccountBalance = createAccountBalanceModel(db);
 
-        // استدعاء الدالة الجديدة لحساب الرصيد الكلي للعميل حسب العملة
-        const balances = await getCustomerTotalBalanceByCurrency(db, p_acc_id);
+        // جلب جميع العملاء حسب الشروط المحددة
+        const customers = await db.collection('tbl_cust').find(
+            {
+                $or: [
+                    { cu_type: 0 },
+                    { cu_type: 1, cu_vendor: 1 }
+                ]
+            },
+            { projection: { cu_id: 1, cu_name: 1, cu_acc_id: 1 } }
+        ).toArray();
 
-        res.json({ balances });
+        // جلب جميع أرصدة الحسابات دفعة واحدة
+        const accountBalances = await AccountBalance.find({}).exec();
+
+        // تحويل قيم Long إلى سلاسل نصية لضمان الدقة
+        const formatLongToString = (longObj) => {
+            return longObj ? longObj.toString() : null;
+        };
+
+        // تحويل أرصدة الحسابات إلى شكل يسهل البحث فيه
+        const balanceMap = new Map();
+        for (const balance of accountBalances) {
+            const accountIdStr = formatLongToString(balance.account_id);
+            if (!balanceMap.has(accountIdStr)) {
+                balanceMap.set(accountIdStr, 0);
+            }
+            balanceMap.set(accountIdStr, balanceMap.get(accountIdStr) + balance.balance);
+        }
+
+        // تصفية العملاء بناءً على الرصيد
+        const filteredCustomers = customers.filter(customer => {
+            const cu_acc_id = formatLongToString(customer.cu_acc_id);
+            return cu_acc_id && balanceMap.has(cu_acc_id) && balanceMap.get(cu_acc_id) > 1;
+        }).map(customer => {
+            return {
+                cu_id: formatLongToString(customer.cu_id),
+                cu_name: customer.cu_name,
+                cu_acc_id: formatLongToString(customer.cu_acc_id)
+            };
+        });
+
+        res.json(filteredCustomers);
     } catch (err) {
-        console.error('Error while fetching customer balance:', err.message);
-        res.status(500).json({ error: 'حدث خطأ أثناء استرجاع رصيد العميل' });
+        console.error('Error while fetching customers:', err.message);
+        res.status(500).json({ error: 'حدث خطأ أثناء استرجاع العملاء' });
     }
 });
-
 
 
 module.exports = router;
